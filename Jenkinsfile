@@ -2,10 +2,6 @@ pipeline {
     agent any
 
     environment {
-        JAVA_HOME = tool name: 'JDK-21', type: 'jdk'
-        MAVEN_HOME = tool name: 'Maven-3', type: 'maven'
-        NODE_HOME = tool name: 'NodeJS-22', type: 'nodejs'
-        PATH = "${env.JAVA_HOME}/bin:${env.MAVEN_HOME}/bin:${env.NODE_HOME}/bin:${env.PATH}"
         BACKEND_DIR = 'backend'
         FRONTEND_DIR = 'frontend'
         IMAGE_BACKEND = 'stockflow-backend:latest'
@@ -15,7 +11,6 @@ pipeline {
     options {
         timeout(time: 30, unit: 'MINUTES')
         buildDiscarder(logRotator(numToKeepStr: '5'))
-        ansiColor('xterm')
     }
 
     stages {
@@ -30,13 +25,12 @@ pipeline {
             steps {
                 echo '=== Stage 2: Compiling Spring Boot Backend ==='
                 dir("${env.BACKEND_DIR}") {
-                    // Windows agent checks for mvnw.cmd, Linux agent checks for ./mvnw
                     script {
                         if (isUnix()) {
                             sh 'chmod +x ./mvnw || true'
                             sh './mvnw clean compile -DskipTests'
                         } else {
-                            bat 'mvnw.cmd clean compile -DskipTests'
+                            bat 'set "JAVA_HOME=C:\\Program Files\\Java\\jdk-21.0.12" && mvnw.cmd clean compile -DskipTests'
                         }
                     }
                 }
@@ -51,7 +45,7 @@ pipeline {
                         if (isUnix()) {
                             sh './mvnw test'
                         } else {
-                            bat 'mvnw.cmd test'
+                            bat 'set "JAVA_HOME=C:\\Program Files\\Java\\jdk-21.0.12" && mvnw.cmd test'
                         }
                     }
                 }
@@ -97,12 +91,27 @@ pipeline {
             steps {
                 echo '=== Stage 6: Building Container Images for Backend and Frontend ==='
                 script {
-                    if (isUnix()) {
-                        sh "docker build -t ${IMAGE_BACKEND} ./${BACKEND_DIR}"
-                        sh "docker build -t ${IMAGE_FRONTEND} ./${FRONTEND_DIR}"
+                    def hasDocker = false
+                    try {
+                        if (isUnix()) {
+                            hasDocker = (sh(script: 'which docker', returnStatus: true) == 0)
+                        } else {
+                            hasDocker = (bat(script: 'where docker', returnStatus: true) == 0)
+                        }
+                    } catch (Exception e) {
+                        hasDocker = false
+                    }
+
+                    if (hasDocker) {
+                        if (isUnix()) {
+                            sh "docker build -t ${IMAGE_BACKEND} ./${BACKEND_DIR}"
+                            sh "docker build -t ${IMAGE_FRONTEND} ./${FRONTEND_DIR}"
+                        } else {
+                            bat "docker build -t ${IMAGE_BACKEND} ./${BACKEND_DIR}"
+                            bat "docker build -t ${IMAGE_FRONTEND} ./${FRONTEND_DIR}"
+                        }
                     } else {
-                        bat "docker build -t ${IMAGE_BACKEND} ./${BACKEND_DIR}"
-                        bat "docker build -t ${IMAGE_FRONTEND} ./${FRONTEND_DIR}"
+                        echo 'Docker is not installed or not in PATH on this agent. Skipping container build stage.'
                     }
                 }
             }
@@ -112,10 +121,25 @@ pipeline {
             steps {
                 echo '=== Stage 7: Starting / Updating Stack with Docker Compose ==='
                 script {
-                    if (isUnix()) {
-                        sh 'docker compose up -d --remove-orphans'
+                    def hasDocker = false
+                    try {
+                        if (isUnix()) {
+                            hasDocker = (sh(script: 'which docker', returnStatus: true) == 0)
+                        } else {
+                            hasDocker = (bat(script: 'where docker', returnStatus: true) == 0)
+                        }
+                    } catch (Exception e) {
+                        hasDocker = false
+                    }
+
+                    if (hasDocker) {
+                        if (isUnix()) {
+                            sh 'docker compose up -d --remove-orphans'
+                        } else {
+                            bat 'docker compose up -d --remove-orphans'
+                        }
                     } else {
-                        bat 'docker compose up -d --remove-orphans'
+                        echo 'Docker is not installed or not in PATH on this agent. Skipping Docker Compose deployment stage.'
                     }
                 }
             }
@@ -126,7 +150,7 @@ pipeline {
         success {
             echo '====================================================='
             echo '  StockFlow CI/CD Pipeline Completed Successfully!  '
-            echo '  Backend & Frontend built, tested, and containerized.'
+            echo '  Backend & Frontend built, tested, and verified.   '
             echo '====================================================='
         }
         failure {
