@@ -1,0 +1,60 @@
+services:
+  # StockFlow Spring Boot Backend Service
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: stockflow-backend
+    restart: unless-stopped
+    ports:
+      - "8085:8085"
+    environment:
+      - DB_HOST=host.docker.internal
+      - DB_PORT=3306
+      - DB_NAME=stockflow_db
+      - DB_USERNAME=${DB_USERNAME:-root}
+      - DB_PASSWORD=${DB_PASSWORD:-}
+      - SERVER_PORT=8085
+      - SPRING_PROFILES_ACTIVE=prod
+    # Allows the container to communicate with XAMPP MySQL running on your Windows host machine
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    healthcheck:
+      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:8085/api/dashboard/stats || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+
+  # StockFlow React Frontend Service (Served via Nginx)
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: stockflow-frontend
+    restart: unless-stopped
+    ports:
+      - "3000:80"
+    environment:
+      - VITE_API_BASE_URL=http://localhost:8085/api
+    depends_on:
+      - backend
+
+# OPTIONAL STANDALONE MYSQL SERVICE:
+# If you ever want to run StockFlow on another machine without XAMPP installed,
+# uncomment the service below, change DB_HOST in backend to 'mysql', and set up the network.
+#
+#  mysql:
+#    image: mysql:8.0
+#    container_name: stockflow-mysql
+#    restart: unless-stopped
+#    ports:
+#      - "3307:3306"
+#    environment:
+#      MYSQL_ROOT_PASSWORD: root
+#      MYSQL_DATABASE: stockflow_db
+#    volumes:
+#      - mysql-data:/var/lib/mysql
+#
+# volumes:
+#   mysql-data:
